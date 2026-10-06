@@ -53,6 +53,7 @@ object SessionFiles {
             "usr/local/bin/droiddeck-steam-shortcuts" to "usr/local/bin/droiddeck-steam-shortcuts",
             "usr/local/bin/droiddeck-steam-games" to "usr/local/bin/droiddeck-steam-games",
             "usr/local/bin/droiddeck-pad-defaults" to "usr/local/bin/droiddeck-pad-defaults",
+            "usr/local/bin/droiddeck-cloudredirect" to "usr/local/bin/droiddeck-cloudredirect",
             // Flatpak: the bwrap stand-in, the store's helper and setup, and the front end's launcher.
             "usr/local/bin/droiddeck-bwrap" to "usr/local/bin/droiddeck-bwrap",
             "usr/local/bin/droiddeck-flatpak" to "usr/local/bin/droiddeck-flatpak",
@@ -110,11 +111,15 @@ object SessionFiles {
         val fexPreloads = listOf("x86_64", "i386").flatMap { arch ->
             listOf("libblsession.so", "libfakeinput.so").map { "$arch/$it" to "usr/local/lib/droiddeck-fex/$arch/$it" }
         } + listOf("libfaultreport.so", "libthunkaudit.so", "libvulkan-thunk.so").map { "x86_64/$it" to "usr/local/lib/droiddeck-fex/x86_64/$it" }
+        val cloudRedirect = listOf(
+            "usr/local/bin/cloud_redirect_cli" to "usr/local/bin/cloud_redirect_cli",
+            "usr/local/lib/libcloud_redirect.so" to "usr/local/lib/libcloud_redirect.so",
+        )
         val optional = (arrayOf(
             "usr/local/bin/gamescope" to "usr/local/bin/gamescope",
             "usr/local/lib/droiddeck/uruntime" to "usr/local/lib/droiddeck/uruntime",
             "usr/local/share/licenses/uruntime/LICENSE" to "usr/local/share/licenses/uruntime/LICENSE",
-        ) + wlroots + mangoapp + fexPreloads).filter { (asset, _) ->
+        ) + wlroots + mangoapp + fexPreloads + cloudRedirect).filter { (asset, _) ->
             val dir = asset.substringBeforeLast('/')
             runCatching { context.assets.list("linuxfs/$dir")?.contains(asset.substringAfterLast('/')) == true }.getOrDefault(false)
         }
