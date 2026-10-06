@@ -5,7 +5,7 @@
 # ==============================================================================
 set -euo pipefail
 
-CR_VERSION="v2.9.116"
+CR_VERSION="linux-v2.9.117"
 CR_BASE_URL="https://github.com/mirzaarsyad74-cmyk/Cloudredirect/releases/download/${CR_VERSION}"
 
 LIB_DEST="/usr/local/lib/libcloud_redirect.so"

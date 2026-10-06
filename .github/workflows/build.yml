@@ -234,7 +234,7 @@ jobs:
           install -Dm644 tools/linuxfs/desktop/droiddeck-gpu "$D/usr/local/bin/droiddeck-gpu"
           install -Dm644 tools/linuxfs/desktop/droiddeck-desktop-gpu "$D/usr/local/bin/droiddeck-desktop-gpu"
           echo "== Bundling CloudRedirect Linux runtime =="
-          CR_TAG="v2.9.116"
+          CR_TAG="linux-v2.9.117"
           # 1. Native ARM64 binaries for Android rootfs & Steam client
           curl -fsSL --retry 3 -o cr-arm64.tar.gz "https://github.com/mirzaarsyad74-cmyk/Cloudredirect/releases/download/${CR_TAG}/cloudredirect-linux-arm64.tar.gz" || true
           if [ -f cr-arm64.tar.gz ]; then
