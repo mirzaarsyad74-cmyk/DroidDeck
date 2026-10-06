@@ -18,7 +18,7 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: read
+  contents: write
   pull-requests: write
 
 concurrency:
@@ -507,156 +507,54 @@ jobs:
           retention-days: 30
           compression-level: 0
 
-  sign:
+  release:
+    name: Publish Release
     needs: build
-    if: github.repository == 'Droid-Deck/DroidDeck' && github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
-    permissions:
-      contents: read
-      actions: read
-    uses: ./.github/workflows/sign.yml
-    with:
-      environment: signing-main
-      variants: ${{ needs.build.outputs.variants }}
-    secrets: inherit
-
-  # Each signed main build as a prerelease of the public Droid-Deck/DroidDeck-CI (main-<sha>, the
-  # last KEEP kept), where anyone can download it without a GitHub account, then a post in the
-  # Discord's builds channel linking to it. The release is made with a token of the org's
-  # "DroidDeck CI Publisher" app (installed on DroidDeck-CI only, Contents: write): its ID in the
-  # DROIDDECK_CI_APP_ID variable, its private key in the DROIDDECK_CI_APP_KEY secret.
-  # DISCORD_BUILDS_WEBHOOK is the channel's webhook URL.
-  announce:
-    needs: [build, sign]
-    if: github.repository == 'Droid-Deck/DroidDeck' && github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
+    if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
     runs-on: ubuntu-24.04
-    timeout-minutes: 10
     permissions:
-      contents: read
-      pull-requests: read
-    env:
-      CI_REPO: Droid-Deck/DroidDeck-CI
-      KEEP: 10
+      contents: write
     steps:
+      - uses: actions/checkout@v4
       - uses: actions/download-artifact@v4
         with:
-          pattern: droiddeck-signed-*
-          merge-multiple: true
-          path: signed
-
-      - uses: actions/create-github-app-token@v2
-        id: ci-token
-        with:
-          app-id: ${{ vars.DROIDDECK_CI_APP_ID }}
-          private-key: ${{ secrets.DROIDDECK_CI_APP_KEY }}
-          owner: Droid-Deck
-          repositories: DroidDeck-CI
-
-      # What this build is, for the top of the release notes: the merged PR's title and the first
-      # paragraph of its description, or the commit's subject for a push made without a PR.
-      - name: Describe the change
+          name: droiddeck-apk
+          path: apk
+      - name: Create or Update GitHub Release
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
-          pr=$(gh api "repos/$GITHUB_REPOSITORY/commits/$GITHUB_SHA/pulls" \
-            --jq '[.[] | select(.merged_at != null and .base.ref == "main")] | first // empty')
-          if [ -n "$pr" ]; then
-            number=$(jq -r .number <<<"$pr")
-            title=$(jq -r .title <<<"$pr")
-            merged=$(jq -r '.merged_at[:10]' <<<"$pr")
-            summary=$(jq -r '.body // ""' <<<"$pr" | tr -d '\r' | { grep -v '^🤖' || true; } |
-              awk '!p && /^#/ { next } NF { p = 1; print; next } p { exit }' | head -n 6 | cut -c1-400)
-            {
-              echo "**Merged to main** - [PR #$number]($GITHUB_SERVER_URL/$GITHUB_REPOSITORY/pull/$number): $title (merged $merged)"
-              if [ -n "$summary" ]; then
-                echo
-                echo "$summary"
-              fi
-            } > notes-head.md
-          else
-            subject=$(gh api "repos/$GITHUB_REPOSITORY/commits/$GITHUB_SHA" --jq '.commit.message | split("\n")[0]')
-            echo "**Pushed to main** without a PR - $subject" > notes-head.md
-          fi
-          cat notes-head.md
+          APK=$(find apk -name '*.apk' | head -1)
+          cp "$APK" DroidDeck-CloudRedirect.apk
+          sha256sum DroidDeck-CloudRedirect.apk > SHA256SUMS.txt
 
-      - name: Publish to DroidDeck-CI
-        id: publish
-        env:
-          GH_TOKEN: ${{ steps.ci-token.outputs.token }}
-        run: |
-          set -euo pipefail
-          tag=main-${GITHUB_SHA::7}
-          cat signed/SHA256SUMS-*.txt > signed/SHA256SUMS.txt
-          rm signed/SHA256SUMS-*.txt
-          notes="$(cat notes-head.md)
+          VERSION=$(sed -n 's/^ *versionName "\(.*\)"$/\1/p' app/build.gradle)
+          [ -n "$VERSION" ] || VERSION="0.3.1"
+          TAG="v${VERSION}-cloudredirect"
+          SUBJECT=$(git log -1 --format='%s')
 
-          Signed build of $GITHUB_SERVER_URL/$GITHUB_REPOSITORY/commit/$GITHUB_SHA - in main, not yet in a DroidDeck release; for testing.
-          Commit: $GITHUB_SHA
-          VersionCode: $(sed -n 's/^ *versionCode \([0-9][0-9]*\)$/\1/p' app/build.gradle)
-          Each apk installs over a DroidDeck release and keeps its data. \`standard\` is the normal app; the others are the same app under another package name, installed beside it.
+          cat <<EOF > release-notes.md
+## DroidDeck v${VERSION} with CloudRedirect Built-In
 
-          SHA-256:
-          \`\`\`
-          $(cat signed/SHA256SUMS.txt)
-          \`\`\`"
-          gh release delete "$tag" -R "$CI_REPO" --yes --cleanup-tag 2>/dev/null || true
-          gh release create "$tag" -R "$CI_REPO" --target main --prerelease \
-            --title "main ${GITHUB_SHA::7}" --notes "$notes" signed/*
-          # Keep the newest main builds by publication time. GitHub App releases can share createdAt.
-          gh release list -R "$CI_REPO" -L 200 --json tagName,publishedAt \
-            --jq '[.[] | select(.tagName | startswith("main-"))] | sort_by(.publishedAt) | reverse | .['"$KEEP"':][] | .tagName' |
-            while IFS= read -r old; do
-              # Never remove this run's release, even if the API returns an unexpected ordering.
-              if [ "$old" = "$tag" ]; then
-                continue
-              fi
-              # Another main publish may have removed the same old release concurrently.
-              if ! gh release delete "$old" -R "$CI_REPO" --yes --cleanup-tag 2>/dev/null; then
-                if gh release view "$old" -R "$CI_REPO" >/dev/null 2>&1; then
-                  echo "::error::Could not delete old release $old"
-                  exit 1
-                fi
-              fi
-            done
-          published=$(gh release view "$tag" -R "$CI_REPO" --json tagName,assets)
-          jq -e --arg tag "$tag" '.tagName == $tag and (.assets | length) > 0' <<< "$published" >/dev/null
-          url="$GITHUB_SERVER_URL/$CI_REPO/releases/tag/$tag"
-          apk=$(cd signed && ls DroidDeck-*.apk | awk 'length(a) == 0 || length($0) < length(a) { a = $0 } END { print a }')
-          echo "release=$url" >> "$GITHUB_OUTPUT"
-          echo "apk=$GITHUB_SERVER_URL/$CI_REPO/releases/download/$tag/$apk" >> "$GITHUB_OUTPUT"
-          echo "Published $url"
+**Built from commit:** \`${GITHUB_SHA::7}\`
+**Summary:** ${SUBJECT}
 
-      - name: Post to Discord
-        env:
-          WEBHOOK: ${{ secrets.DISCORD_BUILDS_WEBHOOK }}
-          GH_TOKEN: ${{ github.token }}
-          RELEASE: ${{ steps.publish.outputs.release }}
-          APK: ${{ steps.publish.outputs.apk }}
-        run: |
-          set -euo pipefail
-          if [ -z "$WEBHOOK" ]; then
-            echo "::notice::No DISCORD_BUILDS_WEBHOOK secret; nothing posted"
-            exit 0
-          fi
-          commit=$(gh api "repos/$GITHUB_REPOSITORY/commits/$GITHUB_SHA")
-          subject=$(jq -r '.commit.message | split("\n")[0]' <<<"$commit")
-          # A merge commit's subject is "Merge pull request #N from ..."; its body's first line is
-          # the PR's title, which says more.
-          title=$(jq -r '.commit.message | split("\n") | map(select(length > 0)) | .[1] // ""' <<<"$commit")
-          pr=$(sed -n 's/^Merge pull request #\([0-9]*\).*/\1/p' <<<"$subject")
-          if [ -n "$pr" ]; then
-            what="[#$pr]($GITHUB_SERVER_URL/$GITHUB_REPOSITORY/pull/$pr): ${title:-$subject}"
-          else
-            what="[\`${GITHUB_SHA::7}\`]($GITHUB_SERVER_URL/$GITHUB_REPOSITORY/commit/$GITHUB_SHA): $subject"
-          fi
-          get=$(printf 'Download: [standard APK](<%s>) · [all variants](<%s>)' "$APK" "$RELEASE")
-          content=$(printf '**New signed build** `main-%s`\n%s\n%s' "${GITHUB_SHA::7}" "$what" "$get")
-          jq -n --arg content "$content" '{content: $content, allowed_mentions: {parse: []}}' |
-            curl -fsS -H 'Content-Type: application/json' -d @- "$WEBHOOK" -o /dev/null
-          echo "Posted: $content"
+### What's Included:
+- **CloudRedirect** cross-platform Steam save sync pre-bundled.
+- \`libcloud_redirect.so\` & \`cloud_redirect_cli\` staged into \`/usr/local/bin/\` & \`/usr/local/lib/\` on session launch.
+- Automatic save redirection for Steam client and Proton games.
+- Management CLI: \`droiddeck-cloudredirect\`.
 
-  catalog:
-    needs: announce
-    if: ${{ always() && github.event_name != 'pull_request' && github.ref == 'refs/heads/main' && needs.announce.result != 'skipped' }}
-    uses: ./.github/workflows/update-catalog.yml
-    secrets: inherit
+### Direct Download:
+Download **\`DroidDeck-CloudRedirect.apk\`** below to install directly on your Android device.
+EOF
+
+          gh release delete "$TAG" -R "$GITHUB_REPOSITORY" --yes --cleanup-tag 2>/dev/null || true
+          gh release create "$TAG" DroidDeck-CloudRedirect.apk SHA256SUMS.txt \
+            -R "$GITHUB_REPOSITORY" \
+            --target "$GITHUB_SHA" \
+            --title "DroidDeck v${VERSION} with CloudRedirect" \
+            --notes-file release-notes.md \
+            --latest
+
