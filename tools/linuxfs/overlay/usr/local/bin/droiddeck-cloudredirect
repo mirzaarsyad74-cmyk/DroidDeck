@@ -1,0 +1,176 @@
+#!/bin/bash
+# ==============================================================================
+# DroidDeck Built-in CloudRedirect Integration Manager
+# Enables cross-platform cloud save sync (Google Drive, OneDrive, S3/R2, WebDAV)
+# ==============================================================================
+set -euo pipefail
+
+CR_VERSION="v2.9.115"
+CR_RELEASE_URL="https://github.com/mirzaarsyad74-cmyk/Cloudredirect/releases/download/${CR_VERSION}/cloudredirect-linux-x64.tar.gz"
+
+LIB_DEST="/usr/local/lib/libcloud_redirect.so"
+BIN_DEST="/usr/local/bin/cloud_redirect_cli"
+USER_LIB_DEST="${HOME}/.local/lib/libcloud_redirect.so"
+USER_BIN_DEST="${HOME}/.local/bin/cloud_redirect_cli"
+
+usage() {
+    echo "Usage: droiddeck-cloudredirect <command> [args]"
+    echo ""
+    echo "Commands:"
+    echo "  install [--quiet]    Download and install CloudRedirect binaries"
+    echo "  status               Show CloudRedirect installation & sync status"
+    echo "  auth <provider>      Authenticate cloud provider (e.g. gdrive, onedrive)"
+    echo "  sync [appid]         Manually trigger cloud save sync"
+    echo "  log                  Display CloudRedirect log output"
+    echo ""
+}
+
+get_cli() {
+    if command -v cloud_redirect_cli >/dev/null 2>&1; then
+        echo "cloud_redirect_cli"
+    elif [ -x "$BIN_DEST" ]; then
+        echo "$BIN_DEST"
+    elif [ -x "$USER_BIN_DEST" ]; then
+        echo "$USER_BIN_DEST"
+    else
+        echo ""
+    fi
+}
+
+cmd_install() {
+    local quiet=0
+    [ "${1:-}" = "--quiet" ] && quiet=1
+
+    [ $quiet -eq 0 ] && echo "[+] Installing / Updating CloudRedirect for DroidDeck..."
+
+    # Check if already installed
+    if [ -f "$LIB_DEST" ] && [ -x "$BIN_DEST" ]; then
+        [ $quiet -eq 0 ] && echo "[+] CloudRedirect is already installed in system tree ($LIB_DEST)."
+        return 0
+    fi
+
+    local target_lib="$USER_LIB_DEST"
+    local target_bin="$USER_BIN_DEST"
+    if [ -w "/usr/local/lib" ] 2>/dev/null && [ -w "/usr/local/bin" ] 2>/dev/null; then
+        target_lib="$LIB_DEST"
+        target_bin="$BIN_DEST"
+    fi
+
+    mkdir -p "$(dirname "$target_lib")" "$(dirname "$target_bin")" "${HOME}/.config/CloudRedirect" "${HOME}/.local/share/cloudredirect"
+
+    local work
+    work=$(mktemp -d)
+    trap 'rm -rf "$work"' EXIT
+
+    [ $quiet -eq 0 ] && echo "[+] Downloading CloudRedirect ${CR_VERSION}..."
+    if curl -fsSL --retry 3 "${CR_RELEASE_URL}" -o "${work}/cr.tar.gz"; then
+        tar -xzf "${work}/cr.tar.gz" -C "${work}"
+        if [ -d "${work}/cloudredirect-linux-x64" ]; then
+            cp -f "${work}/cloudredirect-linux-x64/bin/libcloud_redirect.so" "${target_lib}"
+            cp -f "${work}/cloudredirect-linux-x64/bin/cloud_redirect_cli" "${target_bin}"
+            chmod 755 "${target_lib}" "${target_bin}"
+
+            # Create default config if not present
+            local cfg="${HOME}/.config/CloudRedirect/config.json"
+            if [ ! -f "$cfg" ]; then
+                cat <<'EOF' > "$cfg"
+{
+  "provider": "gdrive",
+  "all_apps": true,
+  "sync_achievements": true,
+  "sync_playtime": true,
+  "apps": []
+}
+EOF
+                chmod 600 "$cfg"
+            fi
+
+            # Add desktop shortcut
+            mkdir -p "${HOME}/Desktop" "${HOME}/.local/share/applications"
+            cat <<'EOF' > "${HOME}/.local/share/applications/cloudredirect.desktop"
+[Desktop Entry]
+Name=CloudRedirect
+Comment=Cross-platform Cloud Save Sync for Steam
+Exec=droiddeck-cloudredirect status
+Icon=network-transmit-receive
+Terminal=true
+Type=Application
+Categories=Game;Utility;
+EOF
+            cp -f "${HOME}/.local/share/applications/cloudredirect.desktop" "${HOME}/Desktop/" 2>/dev/null || true
+            chmod +x "${HOME}/Desktop/cloudredirect.desktop" 2>/dev/null || true
+
+            [ $quiet -eq 0 ] && echo "[+] CloudRedirect successfully installed to ${target_lib}!"
+        fi
+    else
+        [ $quiet -eq 0 ] && echo "[-] Failed to download CloudRedirect release bundle."
+        return 1
+    fi
+}
+
+cmd_status() {
+    echo "=== DroidDeck CloudRedirect Status ==="
+    local cli
+    cli=$(get_cli)
+    if [ -n "$cli" ]; then
+        echo "CLI Binary:    $(command -v "$cli" || echo "$cli")"
+    else
+        echo "CLI Binary:    Not found (run 'droiddeck-cloudredirect install')"
+    fi
+
+    for lib in "$LIB_DEST" "$USER_LIB_DEST" "${HOME}/.local/share/Steam/libcloud_redirect.so"; do
+        if [ -f "$lib" ]; then
+            echo "Preload Lib:   $lib (Ready)"
+            break
+        fi
+    done
+
+    echo "Config:        ${HOME}/.config/CloudRedirect/config.json"
+    if [ -f "${HOME}/.config/CloudRedirect/config.json" ]; then
+        grep -E '"provider"|"all_apps"' "${HOME}/.config/CloudRedirect/config.json" || true
+    fi
+
+    if [ -n "$cli" ]; then
+        echo ""
+        echo "--- Cloud Provider Auth Status ---"
+        "$cli" auth-status gdrive || true
+        "$cli" auth-status onedrive || true
+    fi
+}
+
+cmd_auth() {
+    local provider="${1:-}"
+    if [ -z "$provider" ]; then
+        echo "Please specify provider: gdrive, onedrive, s3, r2, webdav" >&2
+        exit 1
+    fi
+    local cli
+    cli=$(get_cli)
+    if [ -z "$cli" ]; then
+        echo "CloudRedirect CLI not installed yet. Running install..."
+        cmd_install
+        cli=$(get_cli)
+    fi
+    "$cli" authenticate "$provider"
+}
+
+cmd_log() {
+    local log="${HOME}/.local/share/cloudredirect/cloud_redirect.log"
+    if [ -f "$log" ]; then
+        tail -n 100 "$log"
+    else
+        echo "No log found at $log"
+    fi
+}
+
+action="${1:-status}"
+shift || true
+
+case "$action" in
+    install) cmd_install "$@" ;;
+    status) cmd_status ;;
+    auth|authenticate) cmd_auth "$@" ;;
+    log|logs) cmd_log ;;
+    help|--help|-h) usage ;;
+    *) echo "Unknown command: $action"; usage; exit 1 ;;
+esac

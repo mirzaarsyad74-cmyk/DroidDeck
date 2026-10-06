@@ -96,3 +96,8 @@ if [ -n "$repair" ]; then
   echo repaired > "$unconfirmed"
   rm -f "$repair_request"
 fi
+
+# Automatically ensure CloudRedirect is installed & ready for Steam
+if command -v droiddeck-cloudredirect >/dev/null 2>&1; then
+  droiddeck-cloudredirect install --quiet || true
+fi

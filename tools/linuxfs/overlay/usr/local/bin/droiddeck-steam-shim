@@ -16,4 +16,15 @@ if [ "${BL_DESKTOP:-}" = 1 ]; then
   done
   exec /usr/local/bin/droiddeck-steam-launch "$ui" ${url:+"$url"}
 fi
+# Preload CloudRedirect into Steam if present
+for cr in /usr/local/lib/libcloud_redirect.so "$HOME/.local/lib/libcloud_redirect.so" "${HOME:-/root}/.local/share/Steam/libcloud_redirect.so"; do
+  if [ -f "$cr" ]; then
+    case ":${LD_PRELOAD:-}:" in
+      *":$cr:"*) ;;
+      *) export LD_PRELOAD="$cr${LD_PRELOAD:+:$LD_PRELOAD}" ;;
+    esac
+    break
+  fi
+done
+
 exec "${HOME:-/root}/.local/share/Steam/steamrtarm64/steam" "$@"
