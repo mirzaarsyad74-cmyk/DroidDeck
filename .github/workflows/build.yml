@@ -28,7 +28,7 @@ concurrency:
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 env:
-  PRELOAD_CACHE_VERSION: v3
+  PRELOAD_CACHE_VERSION: v4
 
 jobs:
   build:
@@ -234,14 +234,27 @@ jobs:
           install -Dm644 tools/linuxfs/desktop/droiddeck-gpu "$D/usr/local/bin/droiddeck-gpu"
           install -Dm644 tools/linuxfs/desktop/droiddeck-desktop-gpu "$D/usr/local/bin/droiddeck-desktop-gpu"
           echo "== Bundling CloudRedirect Linux runtime =="
-          curl -fsSL --retry 3 -o cloudredirect.tar.gz "https://github.com/mirzaarsyad74-cmyk/Cloudredirect/releases/download/v2.9.115/cloudredirect-linux-x64.tar.gz" || true
-          if [ -f cloudredirect.tar.gz ]; then
-            tar -xzf cloudredirect.tar.gz 2>/dev/null || true
-            if [ -d cloudredirect-linux-x64 ]; then
-              install -Dm755 cloudredirect-linux-x64/bin/libcloud_redirect.so "$D/usr/local/lib/libcloud_redirect.so" || true
-              install -Dm755 cloudredirect-linux-x64/bin/cloud_redirect_cli "$D/usr/local/bin/cloud_redirect_cli" || true
+          CR_TAG="v2.9.116"
+          # 1. Native ARM64 binaries for Android rootfs & Steam client
+          curl -fsSL --retry 3 -o cr-arm64.tar.gz "https://github.com/mirzaarsyad74-cmyk/Cloudredirect/releases/download/${CR_TAG}/cloudredirect-linux-arm64.tar.gz" || true
+          if [ -f cr-arm64.tar.gz ]; then
+            tar -xzf cr-arm64.tar.gz 2>/dev/null || true
+            if [ -d cloudredirect-linux-arm64 ]; then
+              install -Dm755 cloudredirect-linux-arm64/bin/libcloud_redirect.so "$D/usr/local/lib/libcloud_redirect.so" || true
+              install -Dm755 cloudredirect-linux-arm64/bin/cloud_redirect_cli "$D/usr/local/bin/cloud_redirect_cli" || true
             fi
-            rm -rf cloudredirect.tar.gz cloudredirect-linux-x64
+            rm -rf cr-arm64.tar.gz cloudredirect-linux-arm64
+          fi
+
+          # 2. x86_64 library for Proton / FEX games
+          curl -fsSL --retry 3 -o cr-x64.tar.gz "https://github.com/mirzaarsyad74-cmyk/Cloudredirect/releases/download/${CR_TAG}/cloudredirect-linux-x64.tar.gz" || true
+          if [ -f cr-x64.tar.gz ]; then
+            tar -xzf cr-x64.tar.gz 2>/dev/null || true
+            if [ -d cloudredirect-linux-x64 ]; then
+              mkdir -p "$D/usr/local/lib/droiddeck-fex/x86_64"
+              install -Dm755 cloudredirect-linux-x64/bin/libcloud_redirect.so "$D/usr/local/lib/droiddeck-fex/x86_64/libcloud_redirect.so" || true
+            fi
+            rm -rf cr-x64.tar.gz cloudredirect-linux-x64
           fi
           install -Dm644 tools/linuxfs/desktop/autostart "$D/etc/xdg/labwc/autostart"
           install -Dm644 tools/linuxfs/desktop/rc.xml "$D/etc/xdg/labwc/rc.xml"

@@ -114,6 +114,7 @@ object SessionFiles {
         val cloudRedirect = listOf(
             "usr/local/bin/cloud_redirect_cli" to "usr/local/bin/cloud_redirect_cli",
             "usr/local/lib/libcloud_redirect.so" to "usr/local/lib/libcloud_redirect.so",
+            "usr/local/lib/droiddeck-fex/x86_64/libcloud_redirect.so" to "usr/local/lib/droiddeck-fex/x86_64/libcloud_redirect.so",
         )
         val optional = (arrayOf(
             "usr/local/bin/gamescope" to "usr/local/bin/gamescope",
