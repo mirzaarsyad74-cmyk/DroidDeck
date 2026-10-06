@@ -534,21 +534,21 @@ jobs:
           TAG="v${VERSION}-cloudredirect"
           SUBJECT=$(git log -1 --format='%s')
 
-          cat <<EOF > release-notes.md
-## DroidDeck v${VERSION} with CloudRedirect Built-In
-
-**Built from commit:** \`${GITHUB_SHA::7}\`
-**Summary:** ${SUBJECT}
-
-### What's Included:
-- **CloudRedirect** cross-platform Steam save sync pre-bundled.
-- \`libcloud_redirect.so\` & \`cloud_redirect_cli\` staged into \`/usr/local/bin/\` & \`/usr/local/lib/\` on session launch.
-- Automatic save redirection for Steam client and Proton games.
-- Management CLI: \`droiddeck-cloudredirect\`.
-
-### Direct Download:
-Download **\`DroidDeck-CloudRedirect.apk\`** below to install directly on your Android device.
-EOF
+          {
+            echo "## DroidDeck v${VERSION} with CloudRedirect Built-In"
+            echo
+            echo "**Built from commit:** \`${GITHUB_SHA::7}\`"
+            echo "**Summary:** ${SUBJECT}"
+            echo
+            echo "### What's Included:"
+            echo "- **CloudRedirect** cross-platform Steam save sync pre-bundled."
+            echo "- \`libcloud_redirect.so\` & \`cloud_redirect_cli\` staged into \`/usr/local/bin/\` & \`/usr/local/lib/\` on session launch."
+            echo "- Automatic save redirection for Steam client and Proton games."
+            echo "- Management CLI: \`droiddeck-cloudredirect\`."
+            echo
+            echo "### Direct Download:"
+            echo "Download **\`DroidDeck-CloudRedirect.apk\`** below to install directly on your Android device."
+          } > release-notes.md
 
           gh release delete "$TAG" -R "$GITHUB_REPOSITORY" --yes --cleanup-tag 2>/dev/null || true
           gh release create "$TAG" DroidDeck-CloudRedirect.apk SHA256SUMS.txt \
